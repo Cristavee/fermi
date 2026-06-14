@@ -1,0 +1,14 @@
+build/
+*.o
+*.a
+*.so
+*.dylib
+*.bc
+*.ll.tmp
+*.s.tmp
+CMakeCache.txt
+CMakeFiles/
+cmake_install.cmake
+CTestTestfile.cmake
+.cache/
+compile_commands.json

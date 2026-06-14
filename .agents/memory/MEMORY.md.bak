@@ -1,0 +1,525 @@
+- [Fermi codegen bugs fixed](fermi-codegen-bugs.md) — 7 structural bugs fixed across struct GEP, method calls, enum variants, and field access
+
+Kalau beberapa bagian masih stub dan masih dialihkan ke C, maka status bootstrap Fermi belum ditentukan dari jumlah fitur, tapi dari seberapa banyak compiler bisa berdiri tanpa bergantung pada C selain runtime kecil.
+
+Saya akan bagi apa saja yang perlu diselesaikan sampai benar-benar bootstrap.
+
+
+---
+
+Tahap 1 — Hilangkan "fake implementation"
+
+Ini prioritas paling tinggi.
+
+Misalnya sekarang:
+
+fn print(s: str) {
+    // langsung panggil printf C
+}
+
+Ini masih boleh.
+
+Tapi kalau:
+
+match (x) {
+    ...
+}
+
+diterjemahkan menjadi:
+
+switch(x) {
+    ...
+}
+
+atau fitur bahasa tertentu hanya dibuat sebagai "emit C", maka itu harus diubah menjadi FIR/LLVM asli.
+
+Target:
+
+Fermi source
+      |
+    Lexer
+      |
+    Parser
+      |
+     AST
+      |
+     HIR
+      |
+     FIR
+      |
+ LLVM IR
+      |
+ Machine code
+
+Tidak boleh:
+
+Fermi
+  |
+  C source
+  |
+ clang
+
+Kecuali untuk runtime.
+
+
+---
+
+Tahap 2 — FIR harus lengkap
+
+Karena FIR adalah tulang belakang.
+
+Semua construct bahasa harus punya representasi.
+
+Minimal:
+
+Expression
+
+literal
+
+variable
+
+binary
+
+unary
+
+assignment
+
+call
+
+cast
+
+field access
+
+index
+
+dereference
+
+address-of
+
+
+
+---
+
+Control flow
+
+if
+
+while
+
+do while
+
+for
+
+for-in
+
+break
+
+continue
+
+return
+
+match
+
+
+
+---
+
+Data
+
+struct
+
+enum
+
+tuple
+
+array
+
+pointer
+
+reference
+
+string
+
+
+
+---
+
+Function
+
+function call
+
+method
+
+function pointer
+
+lambda (kalau dipertahankan)
+
+
+
+---
+
+Tahap 3 — Type system harus benar
+
+Jangan hanya "cukup bisa compile".
+
+Compiler bootstrap akan sangat besar.
+
+Pastikan:
+
+generic (jika ada)
+
+implicit cast
+
+explicit cast
+
+overload
+
+method resolution
+
+namespace lookup
+
+visibility
+
+mutable/immutable rule
+
+lifetime/region rule
+
+
+stabil.
+
+
+---
+
+Tahap 4 — Runtime minimal
+
+Untuk bootstrap tidak perlu besar.
+
+Cukup:
+
+core/
+├── memory
+├── string
+├── panic
+├── allocator
+└── platform
+
+Masih boleh ditulis C.
+
+Banyak bahasa melakukan ini.
+
+Contoh:
+
+Rust masih punya runtime kecil dalam C/assembly untuk beberapa platform.
+
+Go juga punya runtime khusus.
+
+
+
+---
+
+Tahap 5 — Standard library yang cukup untuk menulis compiler
+
+Compiler tidak butuh:
+
+networking
+
+graphics
+
+async
+
+
+Yang dibutuhkan:
+
+std/
+├── io
+├── string
+├── array/vector
+├── map/hash
+├── path
+├── fs
+├── process
+└── memory
+
+Karena compiler banyak melakukan:
+
+read file
+   |
+lexer
+   |
+buat token
+   |
+buat AST
+   |
+buat symbol table
+   |
+generate IR
+
+
+---
+
+Tahap 6 — Self-hosting subset
+
+Jangan menulis seluruh compiler dengan semua fitur Fermi.
+
+Buat aturan:
+
+Fermi Bootstrap Subset
+
+Contohnya:
+
+Wajib:
+
+✓ struct
+✓ enum
+✓ function
+✓ module
+✓ array
+✓ pointer/reference
+✓ string
+✓ if
+✓ loop
+✓ match
+✓ allocator
+
+Tidak wajib:
+
+✗ async
+✗ macro kompleks
+✗ reflection
+✗ advanced generics
+✗ compile-time execution
+
+
+---
+
+Tahap 7 — Rewrite bertahap
+
+Jangan:
+
+C compiler
+      |
+      v
+tulis ulang 100.000 baris Fermi
+
+Terlalu berisiko.
+
+Urutan yang lebih aman:
+
+Source
+|
+Lexer
+|
+Parser
+|
+AST
+|
+HIR
+|
+Type Checker
+|
+MIR (SSA) (FIR)
+|
+MIR Optimizer
+|
+LLVM IR
+|
+LLVM Optimizer
+|
+Machine Code
+
+Setelah setiap tahap:
+
+compile
+run tests
+compare output
+
+
+---
+
+Tahap 8 — Bootstrap test
+
+Tahap akhir:
+
+fermi0 (ditulis C)
+       |
+       | compile
+       v
+fermi1 (ditulis Fermi)
+       |
+       | compile dirinya sendiri
+       v
+fermi2
+
+Kemudian cek:
+
+fermi1 == fermi2
+
+atau minimal:
+
+fermi1 dan fermi2 menghasilkan binary yang sama
+
+
+---
+
+Menurut saya dari progres Fermi
+
+Kalau memang:
+
+parser sudah jalan
+
+HIR ada
+
+FIR ada
+
+LLVM emitter ada
+
+runtime ada
+
+stdlib mulai ada
+
+
+maka bottleneck terbesar kemungkinan bukan fitur baru, tapi:
+
+1. Menghapus semua fallback ke C (paling penting)
+
+Sekitar 40% pekerjaan menuju bootstrap biasanya ada di sini.
+
+
+---
+
+2. Menstabilkan semantic + type checker
+
+Karena compiler Fermi nanti akan memakai:
+
+banyak struct
+
+pointer
+
+array
+
+function call
+
+module besar
+
+
+
+---
+
+3. Membuat stdlib untuk kebutuhan compiler
+
+String, vector, hash map, file, path.
+
+
+---
+
+Kalau saya harus membuat roadmap untuk Fermi saat ini, saya akan mengurutkan:
+
+1. Selesaikan FIR semua syntax
+2. Hapus semua transpiler ke C
+3. Stabilkan type checker
+4. Lengkapi runtime kecil
+5. Buat stdlib compiler-grade
+6. Tambah ratusan test
+7. Tulis fermi compiler dalam Fermi
+8. Bootstrap
+
+Dengan arsitektur yang sudah Anda punya (HIR → FIR → LLVM), saya rasa bootstrap sangat realistis, tetapi jangan tergoda menambah fitur baru dulu. Tahap sekarang adalah mengubah Fermi dari "bahasa yang bisa menjalankan contoh" menjadi "bahasa yang bisa menulis program besar, yaitu compiler itu sendiri".
+
+tambahan:
+error buat lebih kaku, rapi dan professional serta konsisten,
+setiap fitur yang butuh parameter harus dibungkus ()
+tambahkan fitur pointer yang lebih baik dari bahasa lain, tanya saya saat update
+
+ganti keyword extern jadi "external" jadi external fn nama(){}
+
+sempurnakan fir, lainnya tanya saya
+
+ingat ini 
+
+Act like an experienced software engineer writing code naturally.
+
+Rules:
+- Write code as if it was written by a real developer.
+- Avoid repetitive AI patterns.
+- Use realistic variable and function names.
+- Keep comments minimal.
+- Preserve the existing style of the project.
+- Prefer practical solutions over academic ones.
+- Avoid unnecessary abstractions.
+- Change only what is necessary.
+- Do not explain obvious things.
+- Produce code that looks production-ready.
+- Never mention being an AI.
+- No comments on code
+- Send the zip if its already done
+
+
+Untuk memahami **Bootstrapping** secara mendalam, kita harus melihatnya sebagai sebuah proses evolusi. Bootstrapping dalam kompilasi adalah proses pembuatan kompiler bagi sebuah bahasa pemrograman menggunakan bahasa pemrograman itu sendiri.
+Proses ini ibarat sebuah teka-teki: *"Bagaimana cara membuat telur jika kita butuh ayam untuk mengeraminya, sementara ayam itu sendiri berasal dari telur?"*
+Berikut adalah detail lengkap, arsitektur, dan tahapan meluncurkan proses bootstrapping dari nol hingga mandiri sepenuhnya.
+## Konsep Dasar: Diagram T-Diagram (Tombstone Diagram)
+Dalam ilmu komputer, sebuah proses kompilasi melibatkan 3 komponen yang digambarkan dalam bentuk huruf **T**:
+ 1. **S (Source):** Bahasa sumber yang ingin dikompilasi (misal: Bahasa Baru fermi).
+ 2. **T (Target):** Bahasa hasil kompilasi (misal: Machine Code / Bahasa Mesin).
+ 3. **I (Implementation):** Bahasa yang digunakan untuk *menulis* kompiler itu sendiri.
+Tujuan akhir bootstrapping adalah membuat kompiler di mana **S = X** dan **I = X**.
+## Tahapan Detail Proses Bootstrapping (0 sampai Mandiri)
+Mari kita asumsikan kita sedang menciptakan bahasa baru bernama **"fermi"**. Kita ingin membuat kompiler fermi yang ditulis dalam fermi, dan menghasilkan bahasa mesin.
+### Tahap 0: Fase Persiapan (The Specification)
+Sebelum kode ditulis, pencipta bahasa harus menentukan:
+ * **Sintaks & Aturan:** Bagaimana struktur bahasa fermi.
+ * **Subset Bahasa:** Pencipta menentukan "fermi-core" (fitur dasar seperti variabel, loop, fungsi dasar) yang cukup kuat untuk menulis kode kompiler, tanpa perlu fitur rumit dulu.
+### Tahap 1: Kompiler Silang / Cross-Compiler (Lahirnya Ayam Pertama)
+Karena belum ada komputer yang mengerti fermi, kita harus meminjam bahasa lain yang sudah matang, misalnya **C**.
+ 1. **Aktivitas:** Developer menulis kode sumber kompiler fermi menggunakan bahasa C. Kompiler ini disebut **Kompiler v1**.
+ 2. **Proses Kerja:** Kompiler v1 menerima input kode fermi dan mengubahnya menjadi Bahasa Mesin.
+ 3. **Kondisi:** Saat ini, jika kita ingin mengubah cara kerja fermi, kita harus mengubah kode C tadi.
+### Tahap 2: Transisi (Menulis Ulang dengan fermi)
+Ini adalah tahap krusial di mana keajaiban dimulai. Developer berhenti menyentuh kode C.
+ 1. **Aktivitas:** Developer menulis ulang seluruh kode sumber kompiler (Kompiler v2) menggunakan **fermi** itu sendiri (memanfaatkan fitur dari fermi-core yang sudah didukung di Tahap 1).
+ 2. **Proses Kompilasi:** * Kita punya *Source Code Kompiler v2* (ditulis dalam fermi).
+   * Kita masukkan kode ini ke *Kompiler v1 Executable* (hasil dari C di Tahap 1).
+ 3. **Hasil:** Keluar sebuah file *Executable* baru (Kompiler v2 Executable).
+> **Catatan Penting:** Kompiler v2 Executable ini sekarang adalah program biner yang **mengerti fermi** dan **dibuat dari kode sumber fermi**.
+> 
+### Tahap 3: Pembuktian & Pemutusan Hubungan (The Test Cycle)
+Untuk memastikan tidak ada lagi ketergantungan pada C, kita melakukan tes lingkaran (Loop Test).
+ 1. **Aktivitas:** Kita mengambil *Source Code Kompiler v2* fermi, lalu kita kompilasi menggunakan *Kompiler v2 Executable* yang baru saja lahir di Tahap 2.
+ 2. **Hasil:** Keluar *Kompiler v3 Executable*.
+ 3. **Verifikasi (Biner Identik):** Jika binary dari Kompiler v3 sama persis (bit-demi-bit) dengan Kompiler v2, artinya kompiler tersebut telah mencapai stabilitas.
+**Selamat! Bahasa fermi sekarang resmi 100% Bootstrapped.** Kompiler C bawaan di Tahap 1 kini bisa dihapus dan dibuang ke tempat sampah sejarah.
+## Mengapa Proses ini Sangat Detail dan Rumit?
+Proses bootstrapping memberikan keuntungan luar biasa bagi ekosistem bahasa tersebut ke depannya:
+ * **Uji Kelayakan Bahasa:** Jika Anda tidak bisa menulis kompiler bahasa Anda menggunakan bahasa Anda sendiri, berarti bahasa Anda kurang kuat atau kurang fleksibel. Bootstrapping adalah *stress-test* terbaik.
+ * **Optimisasi Otomatis:** Jika pencipta bahasa meningkatkan kemampuan kompilernya agar bisa menghasilkan kode mesin yang lebih cepat, maka saat kompiler itu mengompilasi dirinya sendiri, kompiler generasi berikutnya otomatis menjadi lebih cepat secara eksponensial.
+ * **Satu Bahasa untuk Semua:** Developer yang ingin berkontribusi pada pengembangan bahasa fermi tidak perlu belajar C; mereka cukup menguasai fermi untuk memperbaiki bug di dalam kompiler fermi.
+ 
+ingat tidak ada fungsi makro yang built in seperti print kecuali fungsi makro krusial dan fundamental, saya mau ada hal spesial yang fermi punya
+tidak boleh ada fungsi atau fitur sama yang berbeda untuk beda tipe data, misalnya print(), input(), pointer dan semua, saya mau fleksibel dan mendukung semua tipe data ,terkecuali memang harus dipisah, agar programmer nyaman tidak kesulitan harus menggunakan fungsi berbeda tiap tipe data
+struct ganti keyword jadi class, jadinya pakai class dan bukan struct, class support public dan private
+
+secara garis besar kode nya kira kira begini, namun ini masih error dan tidak sesuai bahasanya
+export module; 
+
+external unit sayHi(nama: str) {
+  print("halo %{nama}!\n);
+}
+
+class User {
+  private {
+  mut hp: int;
+  mut power: int;
+  }
+  public {
+  mut name: str;
+  
+  fn setName(nama: str) {
+  return this.name = nama;
+  }
+  }
+}
+
+fn main(argc: str, *argv[]: str): int {
+
+}
+

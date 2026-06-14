@@ -1,0 +1,11 @@
+import <std.io>;
+
+fn main(): int {
+    region r {
+        let p: *int = alloc(64);
+        let q: *int = alloc(128);
+        io::print("in region\n");
+    }
+    io::print("region auto-free ok\n");
+    return 0;
+}
